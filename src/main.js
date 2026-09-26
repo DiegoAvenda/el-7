@@ -372,6 +372,7 @@ function init() {
   // Pre-carga asíncrona segura con fallback garantizado
   assetManager.loadManifest({
     wall_tech: "/assets/wall.png",
+    enemy_sheet: "/assets/enemy-sheet.png",
     enemy_cyber_cuatrero: "/assets/enemy.png",
     enemy_dead: "/assets/enemy_dead.png",
     weapon_plasma_revolver: "/assets/weapon.png",

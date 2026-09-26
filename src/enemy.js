@@ -1,4 +1,5 @@
 import { isWall } from "./map.js"
+import { getEnemyFrame, drawEnemyFrame, getKeyedSprite } from "./enemySprites.js"
 
 /**
  * Estados del FSM para el Cyber-Cuatrero:
@@ -34,8 +35,14 @@ export class Enemy {
     this.damagePerHit = 12
     this.hurtFlashTimer = 0
     this.angle = 0
+    this.facing = 0
     this.isDead = false
     this.idleTimer = 0
+    // Animación por sprite sheet
+    this.animTime = Math.random() * 40
+    this.attackAnim = 0
+    this.hitTimer = 0
+    this.deathTime = 0
   }
 
   takeDamage(amount) {
@@ -43,6 +50,7 @@ export class Enemy {
 
     this.health = Math.max(0, this.health - amount)
     this.hurtFlashTimer = 10
+    this.hitTimer = 14
 
     if (this.state !== ENEMY_STATES.ATTACK) {
       this.state = ENEMY_STATES.CHASE
@@ -58,19 +66,35 @@ export class Enemy {
   die() {
     this.state = ENEMY_STATES.DEAD
     this.isDead = true
+    this.deathTime = 0
+  }
+
+  _enterAttack() {
+    if (this.state !== ENEMY_STATES.ATTACK) {
+      this.state = ENEMY_STATES.ATTACK
+      this.attackAnim = 0
+    }
   }
 
   update({ playerX, playerY, squareSize, timeScale, onDamagePlayer, hasLineOfSight }) {
+    this.animTime += timeScale
     if (this.hurtFlashTimer > 0) {
       this.hurtFlashTimer -= timeScale
     }
+    if (this.hitTimer > 0) {
+      this.hitTimer -= timeScale
+    }
 
     if (this.state === ENEMY_STATES.DEAD) {
+      this.deathTime += timeScale
       return
     }
 
     if (this.attackCooldown > 0) {
       this.attackCooldown -= timeScale
+    }
+    if (this.state === ENEMY_STATES.ATTACK) {
+      this.attackAnim += timeScale
     }
 
     const dx = playerX - this.x
@@ -85,7 +109,8 @@ export class Enemy {
     switch (this.state) {
       case ENEMY_STATES.IDLE:
         if (canSeePlayer) {
-          this.state = distToPlayer <= this.attackRange ? ENEMY_STATES.ATTACK : ENEMY_STATES.CHASE
+          if (distToPlayer <= this.attackRange) this._enterAttack()
+          else this.state = ENEMY_STATES.CHASE
           break
         }
         this.idleTimer -= timeScale
@@ -96,7 +121,8 @@ export class Enemy {
 
       case ENEMY_STATES.PATROL:
         if (canSeePlayer) {
-          this.state = distToPlayer <= this.attackRange ? ENEMY_STATES.ATTACK : ENEMY_STATES.CHASE
+          if (distToPlayer <= this.attackRange) this._enterAttack()
+          else this.state = ENEMY_STATES.CHASE
           break
         }
         this._handlePatrol(squareSize, timeScale)
@@ -109,13 +135,15 @@ export class Enemy {
           break
         }
         if (distToPlayer <= this.attackRange && canSeePlayer) {
-          this.state = ENEMY_STATES.ATTACK
+          this._enterAttack()
           break
         }
         this._moveTowards(playerX, playerY, this.speed * timeScale, squareSize)
         break
 
       case ENEMY_STATES.ATTACK:
+        // En ataque siempre encara al jugador
+        this.facing = this.angle
         if (distToPlayer > this.attackRange * 1.3 || !canSeePlayer) {
           this.state = ENEMY_STATES.CHASE
           break
@@ -152,6 +180,8 @@ export class Enemy {
     const dist = Math.hypot(dx, dy)
     if (dist === 0) return
 
+    this.facing = Math.atan2(dy, dx)
+
     const vx = (dx / dist) * step
     const vy = (dy / dist) * step
     const margin = this.radius
@@ -165,9 +195,29 @@ export class Enemy {
   }
 
 
-  render(ctx, { screenX, screenY, spriteWidth, spriteHeight }, assetManager) {
+  render(ctx, { screenX, screenY, spriteWidth, spriteHeight }, assetManager, opts = {}) {
     const spriteX = screenX - spriteWidth / 2
-    const spriteY = screenY - spriteHeight / 2
+    // Los sprites de la hoja son más altos que anchos: anclar pies al suelo
+    const spriteY = screenY - spriteHeight / 2 - spriteHeight * 0.08
+
+    // 1. Sprite sheet animada (prioritaria)
+    const sheet = assetManager?.getImage("enemy_sheet")
+    if (sheet) {
+      const keyed = getKeyedSprite(sheet)
+      const px = opts.playerX ?? this.x + Math.cos(this.angle) * 100
+      const py = opts.playerY ?? this.y + Math.sin(this.angle) * 100
+      const angleToPlayer = Math.atan2(py - this.y, px - this.x)
+      const frame = getEnemyFrame(this, angleToPlayer, this.facing)
+
+      ctx.save()
+      if (this.hurtFlashTimer > 0 && frame.kind !== "hit") {
+        ctx.filter = "brightness(2) contrast(1.4)"
+      }
+      drawEnemyFrame(ctx, keyed, frame, spriteX, spriteY, spriteWidth, spriteHeight)
+      ctx.restore()
+      this._renderHealthBar(ctx, spriteX, spriteY, spriteWidth, spriteHeight)
+      return
+    }
 
     const assetKey = this.isDead ? "enemy_dead" : "enemy_cyber_cuatrero"
     const image = assetManager?.getImage(assetKey)

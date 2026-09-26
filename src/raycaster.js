@@ -243,7 +243,8 @@ export class Raycaster {
           spriteWidth: spriteSize,
           spriteHeight: spriteSize,
         },
-        assetManager
+        assetManager,
+        { playerX: player.x, playerY: player.y }
       )
     }
   }
